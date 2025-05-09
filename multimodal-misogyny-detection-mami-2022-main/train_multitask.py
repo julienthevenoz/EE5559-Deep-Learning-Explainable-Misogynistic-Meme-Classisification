@@ -10,19 +10,37 @@ import numpy as np
 from torch import nn
 from torch.nn import functional as F
 import torch
+import pandas as pd
+import os
 
-parser = argparse.ArgumentParser(description='Train Multimodal Multi-task model for Misogyny Detection')
-parser.add_argument('--bs', type=int, default=64,
-                    help='64,128')
-parser.add_argument('--epochs', type=int, default=20)
-parser.add_argument('--maxlen', type=int, default=77)
-parser.add_argument('--lr', type=str, default='1e-4',
-                    help='3e-5, 4e-5, 5e-5, 5e-4')
-parser.add_argument('--vmodel', type=str, default='vit14',
-                    help='resnet | vit32 | vit16 | vit14 | rn50 | rn101 | rn504 | rn5016 | rn5064')
+#parser = argparse.ArgumentParser(description='Train Multimodal Multi-task model for Misogyny Detection')
+#parser.add_argument('--bs', type=int, default=64,
+#                   help='64,128')
+#parser.add_argument('--epochs', type=int, default=20)
+#parser.add_argument('--maxlen', type=int, default=77)
+#parser.add_argument('--lr', type=str, default='1e-4',
+#                   help='3e-5, 4e-5, 5e-5, 5e-4')
+#parser.add_argument('--vmodel', type=str, default='vit14',
+#                    help='resnet | vit32 | vit16 | vit14 | rn50 | rn101 | rn504 | rn5016 | rn5064')
 
 
-args = parser.parse_args() 
+#args = parser.parse_args() 
+
+class Args:
+    bs = 64
+    maxlen = 77
+    epochs = 5
+    lr = 1e-4
+    vmodel = 'vit14'  # Or whatever the default visual model is
+
+#class Args:
+ #   bs = 64
+  #  maxlen = 77
+   # epochs = 20
+    #lr = 1e-4
+    #vmodel = 'vit14'  # Or whatever the default visual model is
+
+args = Args()
 
 seed = 42
 
@@ -64,25 +82,29 @@ class MMNetwork(nn.Module):
         self.tdp = nn.Dropout(0.2)
 
     def forward(self, vx, tx, masks=None):
-        # vx = self.vdp(self.vfc(vx))
+        # Apply the visual feature processing (if needed)
         vx = self.vdp(self.act(self.vfc(vx)))
-        
+    
+        # Get the hidden states from the BiGRU (textual features)
         _, hidden_tx = self.bigru(tx)
-        
-        #hidden = [n layers * n directions, batch size, emb dim]
-        # hidden_tx = self.tdp(torch.cat((hidden_tx[0][-2,:,:], hidden_tx[0][-1,:,:]), dim = 1))
-        ## Concatenate Visual and Textual output
-        # mx = torch.cat((vx, hidden_tx), dim=1)
-        mx = torch.cat((vx, self.tdp(hidden_tx[0]).squeeze(0)), dim=1)
-
+    
+        # Print shapes to debug (you can remove these after confirming the shapes)
+        print(vx.shape)  # visual features
+        print(tx.shape)  # text features
+        print(hidden_tx[0].shape)  # GRU hidden states
+    
+        # Expand hidden_tx to match the batch size of vx
+        expanded_hidden_tx = hidden_tx[0].expand(vx.size(0), -1)  # Expands hidden_tx[0] to match the batch size of vx
+    
+        # Now concatenate visual and textual features
+        mx = torch.cat((vx, self.tdp(expanded_hidden_tx).squeeze(0)), dim=1)
+    
+        # Pass through the fully connected layers (if needed)
         mx = self.act(self.mfc1(mx))
-        # mx = self.act(self.mfc2(mx))
-        # mx = self.relu(self.mfc3(mx))
-        # mx = self.relu(self.mfc4(mx))
-
+    
+        # Continue with further processing if necessary
         return torch.sigmoid(self.cf1(mx)), torch.sigmoid(self.cf2(mx)), torch.sigmoid(self.cf3(mx)), \
-                torch.sigmoid(self.cf4(mx)), torch.sigmoid(self.cf5(mx))
-
+               torch.sigmoid(self.cf4(mx)), torch.sigmoid(self.cf5(mx))
 
 _tokenizer = _Tokenizer()
 def tokenize(text, context_length: int = 77):
@@ -139,7 +161,7 @@ def train(model, optimizer, lr_scheduler, num_epochs):
             # forward
             with torch.no_grad():
                 img_feats = clip_model.module.encode_image(img_inps)
-                _, txt_feats = clip_model.module.encode_text(txt_tokens)
+                txt_feats = clip_model.module.encode_text(txt_tokens)
 
             outputs1, outputs2, outputs3, outputs4, outputs5 = model(img_feats, txt_feats, masks)
             preds1 = (outputs1>0.5).int()
@@ -198,11 +220,11 @@ def train(model, optimizer, lr_scheduler, num_epochs):
     return best_model, best_epoch
 
 
-def evaluate(model, loader):
-    model.eval()
-    test_loss = 0
-    all_preds1 = []
-    all_labels1 = []
+def evaluate(model, loader): #evaluate the train model on a given dataset (like validation or test) 
+    model.eval() #evaluation mode (turns off dropout, batchnorm...) 
+    test_loss = 0 #initialize tracking variable 
+    all_preds1 = [] #arrays will collect the predicted values (preds) and true labels (labels)
+    all_labels1 = [] #prediction of 5 different binary labels per input 
     all_preds2 = []
     all_labels2 = []
     all_preds3 = []
@@ -218,9 +240,13 @@ def evaluate(model, loader):
             img_inps, txt_tokens, masks, labels1, labels2, labels3, labels4, labels5 = img_inps.to(device), \
                 txt_tokens.to(device), masks.to(device), labels1.to(device), labels2.to(device), labels3.to(device), \
                 labels4.to(device), labels5.to(device)
+            
+            # Temporarily print the result to debug
+            #result = clip_model.module.encode_text(txt_tokens)
+            #print(result)
 
             img_feats = clip_model.module.encode_image(img_inps)
-            _, txt_feats = clip_model.module.encode_text(txt_tokens)
+            txt_feats = clip_model.module.encode_text(txt_tokens)
 
             outputs1, outputs2, outputs3, outputs4, outputs5 = model(img_feats, txt_feats, masks)
 
@@ -295,8 +321,8 @@ transform_config = {'train': transforms.Compose([
 }
 
 ## Dataset
-tr_df = pd.read_csv('data/train.csv', sep='\t')
-vl_df = pd.read_csv('data/validation.csv', sep='\t')
+#tr_df = pd.read_csv('data/train.tsv', sep='\t')
+#vl_df = pd.read_csv('data/validation.tsv', sep='\t')
 
 ## Find max length in training text
 # max_length = 0
@@ -307,17 +333,51 @@ vl_df = pd.read_csv('data/validation.csv', sep='\t')
 # print("Maximum number of tokens:%d"%(max_length))
 ## -------------------------------
 
+#if args.maxlen != 0:
+# max_length = args.maxlen
+
+#tr_data = CustomDatasetFixed(tr_df, 'training', transform_config['test'], preprocess, tokenize, max_length)
+#vl_data = CustomDatasetFixed(vl_df, 'training', transform_config['test'], preprocess, tokenize, max_length)
+#ts_data = CustomDatasetFixed(vl_df, 'test', transform_config['test'], preprocess, tokenize, max_length)
+#tr_loader = DataLoader(tr_data, shuffle=True, num_workers=4, batch_size=batch_size)
+#vl_loader = DataLoader(vl_data, num_workers=2, batch_size=batch_size)
+#ts_loader = DataLoader(ts_data, num_workers=2, batch_size=batch_size)
+
+##1000 first dataset 
+## Dataset
+
+def image_exists(row, image_dir):
+    file_path = os.path.join(image_dir, row['file_name'])
+    return os.path.exists(file_path)
+
+# Load datasets
+tr_df = pd.read_csv('data/train.tsv', sep='\t')
+vl_df = pd.read_csv('data/validation.tsv', sep='\t')
+
+# Filter rows with missing image files
+train_img_dir = 'data/training_images'
+test_img_dir = 'data/test_images'
+
+tr_df = tr_df[tr_df.apply(lambda row: image_exists(row, train_img_dir), axis=1)].reset_index(drop=True)
+vl_df = vl_df[vl_df.apply(lambda row: image_exists(row, train_img_dir), axis=1)].reset_index(drop=True)
+
+# Limit the datasets to 1000 samples and reset index
+tr_df = tr_df.head(1000).reset_index(drop=True)
+vl_df = vl_df.head(1000).reset_index(drop=True)
+
+# Use provided max length or set manually
 if args.maxlen != 0:
     max_length = args.maxlen
 
+# Create datasets
 tr_data = CustomDatasetFixed(tr_df, 'training', transform_config['test'], preprocess, tokenize, max_length)
 vl_data = CustomDatasetFixed(vl_df, 'training', transform_config['test'], preprocess, tokenize, max_length)
 ts_data = CustomDatasetFixed(vl_df, 'test', transform_config['test'], preprocess, tokenize, max_length)
+
+# Data loaders
 tr_loader = DataLoader(tr_data, shuffle=True, num_workers=4, batch_size=batch_size)
 vl_loader = DataLoader(vl_data, num_workers=2, batch_size=batch_size)
 ts_loader = DataLoader(ts_data, num_workers=2, batch_size=batch_size)
-
-
 ## Model
 model = MMNetwork(dim, dim, 1)
 

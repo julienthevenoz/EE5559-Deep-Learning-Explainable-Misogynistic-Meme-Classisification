@@ -43,6 +43,11 @@ class CustomDatasetFixed(Dataset):
         label4 = int(self.data_df['objectification'][idx])
         label5 = int(self.data_df['violence'][idx])
 
+        image_path = os.path.join(self.dloc, self.phase + '_images', fidx + '.jpg')
+        if not os.path.exists(image_path):
+            raise FileNotFoundError(f"Image file not found: {image_path}")
+
+
         img = Image.open(os.path.join(self.dloc, self.phase+'_images', fidx+'.jpg')).convert('RGB')
         img = self.img_transform(img)
 
