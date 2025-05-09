@@ -1,0 +1,1 @@
+Mini project on hate speech detection for EPFL EE-559 Deep Learning course (spring 2025)
