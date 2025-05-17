@@ -10,17 +10,21 @@ import numpy as np
 from torch import nn
 from torch.nn import functional as F
 import torch
+import os
+os.chdir('/home/jpinel/multimodal-misogyny-detection-mami-2022')
 
 parser = argparse.ArgumentParser(description='Train Multimodal Multi-task model for Misogyny Detection')
 parser.add_argument('--bs', type=int, default=64,
                     help='64,128')
-parser.add_argument('--epochs', type=int, default=20)
+
+parser.add_argument('--epochs', type=int, default=2)#avant c'était 20
 parser.add_argument('--maxlen', type=int, default=77)
 parser.add_argument('--lr', type=str, default='1e-4',
                     help='3e-5, 4e-5, 5e-5, 5e-4')
 parser.add_argument('--vmodel', type=str, default='vit14',
                     help='resnet | vit32 | vit16 | vit14 | rn50 | rn101 | rn504 | rn5016 | rn5064')
-
+parser.add_argument('--dataset_path', type=str, required=True)
+parser.add_argument('--results_path', type=str, required=True)
 
 args = parser.parse_args() 
 
@@ -73,7 +77,18 @@ class MMNetwork(nn.Module):
         # hidden_tx = self.tdp(torch.cat((hidden_tx[0][-2,:,:], hidden_tx[0][-1,:,:]), dim = 1))
         ## Concatenate Visual and Textual output
         # mx = torch.cat((vx, hidden_tx), dim=1)
-        mx = torch.cat((vx, self.tdp(hidden_tx[0]).squeeze(0)), dim=1)
+        ##JOJO##
+        #mx = torch.cat((vx, self.tdp(hidden_tx[0]).squeeze(0)), dim=1)
+        #print(vx.size())   # debug print
+        ##SOLUTION ASKIP
+        tx_feat = self.tdp(hidden_tx[0])  # already (batch_size, hidden_dim)
+        tx_feat = tx_feat.repeat(vx.size(0), 1)  # Répéter tx_feat pour chaque élément du batch
+
+        #print(tx_feat.size())   # debug print
+
+        mx = torch.cat((vx, tx_feat), dim=1)
+
+
 
         mx = self.act(self.mfc1(mx))
         # mx = self.act(self.mfc2(mx))
@@ -139,7 +154,10 @@ def train(model, optimizer, lr_scheduler, num_epochs):
             # forward
             with torch.no_grad():
                 img_feats = clip_model.module.encode_image(img_inps)
-                _, txt_feats = clip_model.module.encode_text(txt_tokens)
+                ##JOJO##
+                txt_feats = clip_model.module.encode_text(txt_tokens)  # ✅ la bonne version
+
+                #_, txt_feats = clip_model.module.encode_text(txt_tokens)
 
             outputs1, outputs2, outputs3, outputs4, outputs5 = model(img_feats, txt_feats, masks)
             preds1 = (outputs1>0.5).int()
@@ -220,7 +238,8 @@ def evaluate(model, loader):
                 labels4.to(device), labels5.to(device)
 
             img_feats = clip_model.module.encode_image(img_inps)
-            _, txt_feats = clip_model.module.encode_text(txt_tokens)
+            #_, txt_feats = clip_model.module.encode_text(txt_tokens)
+            txt_feats = clip_model.module.encode_text(txt_tokens)
 
             outputs1, outputs2, outputs3, outputs4, outputs5 = model(img_feats, txt_feats, masks)
 
@@ -257,7 +276,9 @@ def evaluate(model, loader):
 
 
 ## Arguments
+####TEST JOJO####
 batch_size = args.bs
+#batch_size = 8
 init_lr = float(args.lr)
 epochs = args.epochs
 vmodel = args.vmodel
@@ -295,8 +316,8 @@ transform_config = {'train': transforms.Compose([
 }
 
 ## Dataset
-tr_df = pd.read_csv('data/train.csv', sep='\t')
-vl_df = pd.read_csv('data/validation.csv', sep='\t')
+tr_df = pd.read_csv('data/train.tsv', sep='\t')
+vl_df = pd.read_csv('data/validation.tsv', sep='\t')
 
 ## Find max length in training text
 # max_length = 0
@@ -312,8 +333,14 @@ if args.maxlen != 0:
 
 tr_data = CustomDatasetFixed(tr_df, 'training', transform_config['test'], preprocess, tokenize, max_length)
 vl_data = CustomDatasetFixed(vl_df, 'training', transform_config['test'], preprocess, tokenize, max_length)
-ts_data = CustomDatasetFixed(vl_df, 'test', transform_config['test'], preprocess, tokenize, max_length)
-tr_loader = DataLoader(tr_data, shuffle=True, num_workers=4, batch_size=batch_size)
+#true code ts_data = CustomDatasetFixed(vl_df, 'test', transform_config['test'], preprocess, tokenize, max_length)
+##TEST JOJO#
+ts_df = pd.read_csv('data/test.tsv', sep='\t')  # ou .csv selon le format
+ts_data = CustomDatasetFixed(ts_df, 'test', transform_config['test'], preprocess, tokenize, max_length)
+
+####TEST JOJO####
+#true code : tr_loader = DataLoader(tr_data, shuffle=True, num_workers=4, batch_size=batch_size)
+tr_loader = DataLoader(tr_data, shuffle=True, num_workers=2, batch_size=8)
 vl_loader = DataLoader(vl_data, num_workers=2, batch_size=batch_size)
 ts_loader = DataLoader(ts_data, num_workers=2, batch_size=batch_size)
 
@@ -336,7 +363,17 @@ scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, [5,10,15],gamma=0.5)
 
 model_ft, best_epoch = train(model, optimizer, scheduler, num_epochs=epochs)
 
-torch.save(model_ft.state_dict(), 'saved_models/trained_model_%s.pt'%(args.net, vmodel))
+#torch.save(model_ft.state_dict(), 'saved_models/trained_model_%s.pt'%(args.net, vmodel))
+
+# Chemin où tu veux sauvegarder
+save_dir = '/home/jpinel/multimodal-misogyny-detection-mami-2022/saved_models'
+
+# Crée le dossier s'il n'existe pas
+os.makedirs(save_dir, exist_ok=True)
+
+# Sauvegarde le modèle dans ce dossier
+torch.save(model_ft.state_dict(), os.path.join(save_dir, 'trained_model.pt'))
+#torch.save(model_ft.state_dict(), 'saved_models/trained_model.pt')
 
 vl_loss, vl_acc, vl_f1, _, _, _, _ = evaluate(model_ft, vl_loader)
 print('Validation best epoch: %d, Val Loss: %.4f, ACC: %.2f, F1: %.2f'%(best_epoch, np.round(vl_loss,4), vl_acc*100, vl_f1*100))

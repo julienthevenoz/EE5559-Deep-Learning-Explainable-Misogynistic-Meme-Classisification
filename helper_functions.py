@@ -30,6 +30,22 @@ class CustomDatasetFixed(Dataset):
         self.tokenize = tokenize
         self.max_len = max_length
         self.dloc = 'data/'
+	#for here it's add from jo
+
+        image_folder = os.path.join(self.dloc, self.phase + '_images')  # <-- Définir AVANT
+        def image_exists(fname):
+            # fname est p.ex. '1377.jpg'
+            return os.path.exists(os.path.join(image_folder, fname))
+
+        # Filtrer le DataFrame pour ne garder que les images existantes
+        mask = self.data_df['file_name'].apply(image_exists)
+        missing = self.data_df.loc[~mask, 'file_name'].tolist()
+        kept = self.data_df.loc[mask, 'file_name'].tolist()
+        print(f"[WARNING] {len(missing)} images manquantes et exclues : {missing}")
+        print(f"[INFO] {len(kept)} images conservées : {kept}")
+
+        self.data_df = self.data_df.loc[mask].reset_index(drop=True)
+
 
     def __len__(self):
         return len(self.data_df)
