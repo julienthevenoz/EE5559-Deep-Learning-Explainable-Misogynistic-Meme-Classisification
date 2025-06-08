@@ -27,8 +27,9 @@ from torchvision.transforms.functional import to_pil_image
 import webbrowser
 
 
-from CLIP_Surgery.clip import clip
-from CLIP_Surgery.clip.simple_tokenizer import SimpleTokenizer as _Tokenizer
+from CLIP.clip import clip
+from CLIP.clip.simple_tokenizer import SimpleTokenizer as _Tokenizer
+
 
 from helper_functions import *
 from text_normalizer import *
