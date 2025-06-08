@@ -1,0 +1,9 @@
+clip==0.2.0
+lime
+ekphrasis
+ftfy
+seaborn
+segment_anything
+torch torchvision transformers
+git+https://github.com/facebookresearch/segment-anything.git
+packaging
