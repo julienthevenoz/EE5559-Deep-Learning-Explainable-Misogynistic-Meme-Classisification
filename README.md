@@ -14,6 +14,8 @@ line 6 : from pkg_resources import packaging  -> replace with -> import packagin
 
 To retrain the classifier, change status variable to "train". To test the accuracy of the classifer, change it to "test". To classify an image and produce explainability outputs, change it to "explain".  
 
-In explain mode, to choose which image to classify & explain, use the idx variable. Choose an image from the data/test_images/ folder, find its corresponding index in data/test.tsv and change the idx variable to this number.  
+In explain mode, to choose which image to classify & explain, use the idx variable. Choose an image from the data/test_images/ folder, find its corresponding index in data/test.tsv and change the idx variable to this number. 
+
+Open the html file in a browser to view it correctly.  
 
 dockerfile and packages to build the necessary docker environment are in requirements.txt  

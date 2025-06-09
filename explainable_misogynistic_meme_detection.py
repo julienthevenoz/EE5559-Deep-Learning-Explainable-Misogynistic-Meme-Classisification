@@ -273,7 +273,7 @@ class Explainable_Classifier:
 
 
 def main():
-    status = 'train' #'train' #'test'
+    status = 'explain' #'train' #'test'
 
     xai_classifier = Explainable_Classifier()
     
@@ -344,7 +344,7 @@ def main():
         # Saliency map computation can be inserted here
         select_one_specific_image = True    
         if select_one_specific_image :
-            idx = 581  # Index of the image you want
+            idx = 540  # Index of the image you want
             idx -= 2 #for some unknown reason the indices are shifted by 2
             # Get the item directly from the dataset
             img_inp, txt_token, mask, lbl1, lbl2, lbl3, lbl4, lbl5 = ts_data[idx]
