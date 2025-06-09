@@ -140,11 +140,12 @@ class Explainable_Classifier:
     def train(self, model, optimizer, scheduler, epochs, tr_loader, vl_loader, clip_model, criterion):
         best_model, best_f1, best_epoch = model, 0, 0
         for epoch in range(1, epochs + 1):
+            print(f"epoch {epoch}")
             model.train()
             running_loss, corrects, total = 0.0, 0, 0
 
             for i, (img_inps, txt_tokens, masks, *labels) in enumerate(tr_loader):
-                img_inps, txt_tokens, masks = img_inps.to(self.device), txt_tokens.to(device), masks.to(device)
+                img_inps, txt_tokens, masks = img_inps.to(self.device), txt_tokens.to(self.device), masks.to(self.device)
                 labels = [lbl.to(self.device) for lbl in labels]
                 optimizer.zero_grad()
 
@@ -272,7 +273,7 @@ class Explainable_Classifier:
 
 
 def main():
-    status = 'map' #'train' #'test'
+    status = 'train' #'train' #'test'
 
     xai_classifier = Explainable_Classifier()
     
@@ -326,26 +327,25 @@ def main():
     if status == 'train':
         optimizer = optim.Adam(model.parameters(), init_lr, betas=(0.99, 0.98), weight_decay=1e-4)
         scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, [5, 10, 15], gamma=0.5)
-        model_ft, best_epoch = train(model, optimizer, scheduler, epochs, tr_loader, vl_loader, clip_model, criterion)
+        model_ft, best_epoch = xai_classifier.train(model, optimizer, scheduler, epochs, tr_loader, vl_loader, clip_model, criterion)
         torch.save(model_ft.state_dict(), f'model_{xai_classifier.args.net}_{vmodel}.pt')
 
     elif status == 'test':
         model.load_state_dict(torch.load(f'saved_models/trained_model_{xai_classifier.args.net}_{xai_classifier.args.vmodel}.pt'))
         model.to(xai_classifier.device)
         model.eval()
-        ts_loss, ts_acc, *f1_scores = evaluate(model, ts_loader, clip_model, criterion)
+        ts_loss, ts_acc, *f1_scores = xai_classifier.evaluate(model, ts_loader, clip_model, criterion)
         print(f'Test Results → Loss: {ts_loss:.4f} | Accuracy: {ts_acc * 100:.2f}% | F1 Score: {f1_scores[0] * 100:.2f}%')
     
-    elif status == 'map': #this does saliency + CLIP surgery
+    elif status == 'explain': #this does saliency + CLIP surgery + lime
         model.load_state_dict(torch.load(f'saved_models/trained_model_{xai_classifier.args.net}_{xai_classifier.args.vmodel}.pt'))
         model.to(xai_classifier.device)
         model.train() #apparently model needs to be in train mode for saliency maps to work
         # Saliency map computation can be inserted here
         select_one_specific_image = True    
         if select_one_specific_image :
-            # Index of the image you want
-            idx = 538  # need image number -2 for some unkown reason
-
+            idx = 581  # Index of the image you want
+            idx -= 2 #for some unknown reason the indices are shifted by 2
             # Get the item directly from the dataset
             img_inp, txt_token, mask, lbl1, lbl2, lbl3, lbl4, lbl5 = ts_data[idx]
 
@@ -394,7 +394,7 @@ def main():
         fig.suptitle("Saliency maps \n"
             f"Misogyny score {outputs1[0][0]:.3f} | stereotype {outputs2[0][0]:.3f} | "
             f"shaming {outputs3[0][0]:.3f} | objectification {outputs4[0][0]:.3f} | violence {outputs5[0][0]:.3f}",
-            fontsize=25)
+            fontsize=30)
         positions = [(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2)]         
         # Original image in first subplot
         axs[0, 0].imshow(og_img_uint8)
@@ -404,7 +404,6 @@ def main():
         retain_graph = True 
         #create saliency map corresponding to each label
         for n, output in enumerate(outputs_list):
-            print(f"iteration {n} of {len(outputs_list)-1}")
             if n==len(outputs_list)-1:
                 retain_graph = False #on the last pass we can delete the computation graph to free memory
             output.backward(retain_graph=retain_graph) #backward pass on img_inps starting from output to create all gradients related to this output
@@ -484,7 +483,7 @@ def main():
         fig.suptitle("CLIP Surgery \n"
             f"Misogyny score {outputs1[0][0]:.3f} | stereotype {outputs2[0][0]:.3f} | "
             f"shaming {outputs3[0][0]:.3f} | objectification {outputs4[0][0]:.3f} | violence {outputs5[0][0]:.3f}",
-            fontsize=25)
+            fontsize=30)
         positions = [(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2)]
         
         # Original image in first subplot
@@ -544,10 +543,8 @@ def main():
                 
                 with torch.no_grad(): # Disable gradient for time efficiency 
                     batch_txt_feat = clip_model.module.encode_text(batch_txt) # Encode batch (perturebed data) of texts to features
-                    print(image_feat.shape, len(texts))
                     batch_img_feat = image_feat.repeat(len(texts), 1)  # repeat same image features
                     #batch_img_feat = image_feat #only have one image, no need to repeat
-                    print(batch_img_feat.shape, batch_txt.shape, batch_masks.shape)
                     output1, _, _, _, _ = model(batch_img_feat, batch_txt_feat, batch_masks) #call the model on all the pertubed text 
                     return torch.cat([1 - output1, output1], dim=1).cpu().numpy() #return and creates a 2-column tensor representing class probabilities for class 0 and class 1 respectively.
 
