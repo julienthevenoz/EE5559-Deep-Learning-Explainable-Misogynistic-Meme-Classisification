@@ -136,39 +136,132 @@ class Explainable_Classifier:
 
         return test_loss / len(loader), acc, *f1s
 
+    def train(self, model, optimizer, lr_scheduler, num_epochs,  tr_loader, vl_loader, clip_model, criterion, scheduler):
 
-    def train(self, model, optimizer, scheduler, epochs, tr_loader, vl_loader, clip_model, criterion):
-        best_model, best_f1, best_epoch = model, 0, 0
-        for epoch in range(1, epochs + 1):
-            print(f"epoch {epoch}")
-            model.train()
-            running_loss, corrects, total = 0.0, 0, 0
+        since = time.time()
 
-            for i, (img_inps, txt_tokens, masks, *labels) in enumerate(tr_loader):
-                img_inps, txt_tokens, masks = img_inps.to(self.device), txt_tokens.to(self.device), masks.to(self.device)
-                labels = [lbl.to(self.device) for lbl in labels]
+        best_model = model
+        best_acc = 0.0
+        best_val_loss = 100
+        best_epoch = 0
+        best_f1 = 0
+
+        for epoch in range(1, num_epochs+1):
+            print('Epoch {}/{}'.format(epoch, num_epochs))
+            print('-' * 10)
+
+            since2 = time.time()
+
+            model.train()  # Set model to training mode
+
+            running_loss = 0.0
+            running_corrects = 0
+
+            tot = 0.0
+            cnt = 0
+            # Iterate over data.
+            for img_inps, txt_tokens, masks, labels1, labels2, labels3, labels4, labels5 in tr_loader:
+
+                img_inps, txt_tokens, masks, labels1, labels2, labels3, labels4, labels5 = img_inps.to(self.device), \
+                    txt_tokens.to(self.device), masks.to(self.device), labels1.to(self.device), labels2.to(self.device), labels3.to(self.device), \
+                    labels4.to(self.device), labels5.to(self.device)
+
+                # zero the parameter gradients
                 optimizer.zero_grad()
-
+                # forward
                 with torch.no_grad():
                     img_feats = clip_model.module.encode_image(img_inps)
                     txt_feats = clip_model.module.encode_text(txt_tokens)
 
-                outputs = model(img_feats, txt_feats, masks)
-                loss = sum(criterion(o, l.unsqueeze(1).float()) for o, l in zip(outputs, labels))
+                outputs1, outputs2, outputs3, outputs4, outputs5 = model(img_feats, txt_feats, masks)
+                preds1 = (outputs1>0.5).int()
+
+                loss = criterion(outputs1, labels1.unsqueeze(1).float()) + criterion(outputs2, labels2.unsqueeze(1).float()) + \
+                        criterion(outputs3, labels3.unsqueeze(1).float()) + criterion(outputs4, labels4.unsqueeze(1).float()) + \
+                        criterion(outputs5, labels5.unsqueeze(1).float())
+
+                # backward + optimize
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 optimizer.step()
 
+                # statistics
                 running_loss += loss.item()
-                corrects += torch.sum((outputs[0] > 0.5).int() == labels[0].data.view_as((outputs[0] > 0.5).int())).item()
-                total += len(labels[0])
+                running_corrects += torch.sum(preds1 == labels1.data.view_as(preds1)).item()
+                tot += len(labels1)
 
-            scheduler.step()
-            val_metrics = self.evaluate(model, vl_loader, clip_model, criterion)
-            if val_metrics[2] > best_f1:
-                best_model, best_epoch, best_f1 = copy.deepcopy(model), epoch, val_metrics[2]
+                if cnt % 40 == 0:
+                    print('[%d, %5d] loss: %.4f, Acc: %.2f' %
+                        (epoch, cnt + 1, loss.item(), (100.0 * running_corrects) / tot))
+
+                cnt = cnt + 1
+
+            if scheduler:
+                lr_scheduler.step()
+
+
+            train_loss = running_loss / len(tr_loader)
+            train_acc = running_corrects * 1.0 / (len(tr_loader.dataset))
+
+            print('Training Loss: {:.6f} Acc: {:.2f}'.format(train_loss, 100.0 * train_acc))
+
+            test_loss, test_acc, test_f1_1, test_f1_2, test_f1_3, test_f1_4, test_f1_5 = self.evaluate(model, vl_loader, clip_model, criterion)
+
+            print('Epoch: {:d}, Val Loss: {:.4f}, Acc: {:.2f}, F1_1: {:.2f}, F1_2: {:.2f}, F1_3: {:.2f}, F1_4: {:.2f}, F1_5: {:.2f}'.format(epoch, test_loss,test_acc*100, test_f1_1*100, test_f1_2*100, \
+                    test_f1_3*100, test_f1_4*100, test_f1_5*100))
+
+
+            # deep copy the model
+            if test_f1_1 >= best_f1:
+                best_acc = test_acc
+                best_val_loss = test_loss
+                best_model = copy.deepcopy(model)
+                best_epoch = epoch
+                best_f1 = test_f1_1
+
+        time_elapsed2 = time.time() - since2
+        print('Epoch complete in {:.0f}m {:.0f}s'.format(
+            time_elapsed2 // 60, time_elapsed2 % 60))
+
+        time_elapsed = time.time() - since
+        print('Training complete in {:.0f}m {:.0f}s'.format(
+            time_elapsed // 60, time_elapsed % 60))
 
         return best_model, best_epoch
+
+
+    # def train(self, model, optimizer, scheduler, epochs, tr_loader, vl_loader, clip_model, criterion):
+    #     best_model, best_f1, best_epoch = model, 0, 0
+    #     for epoch in range(1, epochs + 1):
+    #         print(f"epoch {epoch}")
+    #         model.train()
+    #         running_loss, corrects, total = 0.0, 0, 0
+
+    #         for i, (img_inps, txt_tokens, masks, *labels) in enumerate(tr_loader):
+    #             img_inps, txt_tokens, masks = img_inps.to(self.device), txt_tokens.to(self.device), masks.to(self.device)
+    #             labels = [lbl.to(self.device) for lbl in labels]
+    #             optimizer.zero_grad()
+
+    #             with torch.no_grad():
+    #                 img_feats = clip_model.module.encode_image(img_inps)
+    #                 txt_feats = clip_model.module.encode_text(txt_tokens)
+
+    #             outputs = model(img_feats, txt_feats, masks)
+    #             loss = sum(criterion(o, l.unsqueeze(1).float()) for o, l in zip(outputs, labels))
+    #             loss.backward()
+    #             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+    #             optimizer.step()
+
+    #             running_loss += loss.item()
+    #             corrects += torch.sum((outputs[0] > 0.5).int() == labels[0].data.view_as((outputs[0] > 0.5).int())).item()
+    #             total += len(labels[0])
+
+    #         scheduler.step()
+    #         val_metrics = self.evaluate(model, vl_loader, clip_model, criterion)
+    #         if val_metrics[2] > best_f1:
+    #             best_model, best_epoch, best_f1 = copy.deepcopy(model), epoch, val_metrics[2]
+
+    #     return best_model, best_epoch
 
 
 
@@ -273,7 +366,7 @@ class Explainable_Classifier:
 
 
 def main():
-    status = 'explain' #'train' #'test'
+    status = 'train' #'train' #'test'
 
     xai_classifier = Explainable_Classifier()
     
@@ -327,7 +420,7 @@ def main():
     if status == 'train':
         optimizer = optim.Adam(model.parameters(), init_lr, betas=(0.99, 0.98), weight_decay=1e-4)
         scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, [5, 10, 15], gamma=0.5)
-        model_ft, best_epoch = xai_classifier.train(model, optimizer, scheduler, epochs, tr_loader, vl_loader, clip_model, criterion)
+        model_ft, best_epoch = xai_classifier.train(model, optimizer, scheduler, epochs, tr_loader, vl_loader, clip_model, criterion, scheduler)
         torch.save(model_ft.state_dict(), f'model_{xai_classifier.args.net}_{vmodel}.pt')
 
     elif status == 'test':
